@@ -4,7 +4,7 @@ interface User {
     room: string,
     rol: string,
     points: number,
-    correctGuess:boolean
+    correctGuess: boolean
     typePlayer: string
 }
 interface Match {
@@ -34,7 +34,7 @@ export const addUser = ({ id, name, room, rol, points, typePlayer }: any) => {
         return { errorUser: "usarname is taken" }
     }
 
-    const user: User = { id, name, room, rol, points, typePlayer,correctGuess:false};
+    const user: User = { id, name, room, rol, points, typePlayer, correctGuess: false };
     users.push(user);
     return { user };
 }
@@ -85,12 +85,10 @@ export const setguessWord = (socketId: string, word: string) => {
         matches = matches.map((match: Match) => {
             if (match.roomName === user.room) {
                 if (word === match.wordToguess) {
+                    match.correctGuesses++;
                     match.guesses.push(`${user.name} has guessed the word`);
                     addPoint(user.id);
-                    if(match.correctGuesses === getNumPlayers(user.room)){
-                        nextRound(socketId);
-                    }
-                }else{
+                } else {
                     match.guesses.push(`${user.name}: ${word}`);
                 }
             }
@@ -98,13 +96,23 @@ export const setguessWord = (socketId: string, word: string) => {
         })
     }
 }
-export const addPoint=(socketId:string)=>{
-  users = users.map((user)=>{
-      if(user.id==socketId){
-          user.points+10;
-      }
-      return user;
-  })
+export const allCorrect = (socketId: string): boolean => {
+    const user: User | undefined = users.find((user) => { return user.id === socketId });
+    const match: Match | undefined = matches.find((match) => match.roomName == user?.room);
+    if (user) {
+        if (match?.correctGuesses === getNumPlayers(user.room)-1) {
+            return true;
+        }
+    }
+    return false;
+}
+export const addPoint = (socketId: string) => {
+    users = users.map((user) => {
+        if (user.id == socketId) {
+            user.points + 10;
+        }
+        return user;
+    })
 }
 export const getNumPlayers = (roomName: string) => {
     let playersInRoom = users.map((user) => {
@@ -160,27 +168,78 @@ export const giveDrawPoints = (socketId: string) => {
 export const startMatch = (socketId: string) => {
     const user: User | undefined = users.find((user) => { return user.id === socketId });
     if (user) {
-        matches = matches.map((match)=>{
-            if(user.room=== match.roomName){
-                match.started=true;
+        matches = matches.map((match) => {
+            if (user.room === match.roomName) {
+                match.started = true;
             }
             return match;
         })
     }
 }
-export const nextRound = (socketId: string) => {
+export const getRandomPlayer = (socketId: string) => {
+    const user: User | undefined = users.find((user) => { return user.id === socketId });
+    const usersInRoom = users.map((u) => {
+        if (u.room == user?.room) {
+            return user;
+        }
+    })
+    const randomUser = usersInRoom[Math.floor(Math.random() * usersInRoom.length)];
+    if(randomUser){
+        users = users.map((user) => {
+            if (user.id == randomUser.id) {
+                user.typePlayer == "crafter"
+            }
+            return user;
+        })
+        return randomUser.id;
+    }
+    return "";
+}
+export const discountRound = (socketId: string) => {
     const user: User | undefined = users.find((user) => { return user.id === socketId });
     if (user) {
-       matches = matches.map((match)=>{
-           match.rounds--;
-           if(match.rounds===0){
-               endMatch()
-           }
-           return match;
-       })
-        
+        matches = matches.map((match: Match) => {
+            if (match.roomName === user.room) {
+              match.rounds--;
+            }
+            return match;
+        })
     }
 }
-export const endMatch = () => {
-
+export const RoundsLeft = (socketId: string) => {
+    const user: User | undefined = users.find((user) => { return user.id === socketId });
+    const match: Match | undefined = matches.find((match) => match.roomName == user?.room);
+    if (user && match) {
+        if (match?.rounds > 0) {
+            return true;
+        }
+    }
+    return false;
+}
+export const startNextRound = (socketId: string, wordToguess: string) => {
+    const user: User | undefined = users.find((user) => { return user.id === socketId });
+    if (user && user.typePlayer == "crafter") {
+        matches = matches.map((match: Match) => {
+            if (match.roomName === user.room) {
+              match.correctGuesses=0;
+              match.drawPoints=[];
+              match.guesses=[];
+              match.wordToguess=wordToguess;
+            }
+            return match;
+        })
+    }
+}
+export const endMatch = (socketId: string) => {
+    const user: User | undefined = users.find((user) => { return user.id === socketId });
+    const usersInRoom = users.map((u) => {
+        if (u.room == user?.room) {
+            return user;
+        }
+    })
+    if (user) {
+        matches = matches.filter(match => match.roomName!=user.room);
+        users = users.filter(u => u.room!=user.room);
+        return usersInRoom;
+    }
 }
