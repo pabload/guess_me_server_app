@@ -24,20 +24,20 @@ io.on('connection', (socket) => {
     console.log("nuevo socket");
     socket.on("createMatch", (args, callback) => {
         const { roomName, playerName, wordToguess } = JSON.parse(args);
-        const { errorMatch, match } = matchinfo.addMatch({ roomName, wordToguess });
-        const { errorUser, user } = matchinfo.addUser({ name: playerName, id: socket.id, rol: 'admin', room: roomName, points: 0, typePlayer: "crafter" });
+        const { errorMatch, match } = matchinfo.addMatch({ roomName, wordToguess, rounds:2 });
+        const { errorUser, user } = matchinfo.addUser({ name: playerName, id: socket.id, rol: 'admin', room: roomName, points: 0, typePlayer: "crafter", });
         if (errorMatch) return callback(
             {
-                message: "createMatch",
+                eventName: "createMatch",
                 status: "error",
-                error: errorMatch
+                data: errorMatch
             }
         );
         if (errorUser) return callback(
             {
-                message: "createMatch",
+                eventName: "createMatch",
                 status: "error",
-                error: errorUser
+                data: errorUser
             }
         );
         console.log("match created: " + JSON.stringify(match));
@@ -45,7 +45,7 @@ io.on('connection', (socket) => {
         socket.join(roomName);
         return callback(
             {
-                message: "createMatch",
+                eventName: "createMatch",
                 status: "success",
             }
         );
@@ -55,27 +55,45 @@ io.on('connection', (socket) => {
         const { roomName, playerName } = JSON.parse(args);
         const { errorUser, user } = matchinfo.addUser({ name: playerName, id: socket.id, rol: 'player', room: roomName, points: 0, typePlayer: "guesser" });
         if (errorUser) return callback({
-            message: "joinMatch",
+            eventName: "joinMatch",
             status: "error",
-            error: errorUser
+            data: errorUser
         });
         console.log("new player: " + JSON.stringify(user));
         socket.join(roomName);
         const roomPlayers = matchinfo.giveRoomPlayers(socket.id);
         io.in(roomName).emit("giveRoomPlayers", {
-            message: "giveRoomPlayers",
+            eventName: "giveRoomPlayers",
             status: "success",
-            roomPlayers
+            data:roomPlayers
         });
-        return callback(
+        return callback( 
             {
-                message: "joinMatch",
+                eventName: "joinMatch",
                 status: "success",
+                data:roomPlayers
             }
         );
     });
     socket.on("startMatch", (args, callback) => {
-        matchinfo.startMatch(socket.id);
+        const startMatchRes = matchinfo.startMatch(socket.id);
+        const roomName = matchinfo.getRoomName(socket.id);
+        if(startMatchRes){
+            io.in(roomName).emit("matchStarted", {
+                eventName: "matchStarted",
+                status: "success",
+            });
+        }
+    });
+    socket.on("getUserInfo", (args, callback) => {
+        const user = matchinfo.getUser(socket.id);
+        return callback( 
+            {
+                eventName: "getUserInfo",
+                status: "success",
+                data:user.typePlayer,
+            }
+        );
     });
     socket.on("guessWord", (args, callback) => {
         const { guessWord } = JSON.parse(args);
@@ -84,40 +102,72 @@ io.on('connection', (socket) => {
         if (matchinfo.allCorrect(socket.id)) {
             matchinfo.discountRound(socket.id);
             if (matchinfo.RoundsLeft(socket.id)) {
-                io.in(room).emit("endRound", 'round ended');
-                return io.to(matchinfo.getRandomPlayer(socket.id)).emit('newCrafter', 'you are the crafter');
+                io.in(room).emit("endRound",    {
+                    eventName: "RoundEnded",
+                    status: "success",
+                });
+                return io.to(matchinfo.getRandomPlayer(socket.id)).emit('newCrafter',     {
+                    eventName: "newCrafter",
+                    status: "success",
+                });
             }
-            io.sockets.in(room).leave(room);
-            return io.in(room).emit("endMatch", matchinfo.endMatch(socket.id));
-
+            io.in(room).emit("endMatch", matchinfo.endMatch(socket.id));
+            console.log(`match on room ${room} has ended`)
+            return io.socketsLeave(room);
         }
         const guesses = matchinfo.giveGuesses(socket.id);
-        io.in(room).emit("giveGuesses", guesses);
+        io.in(room).emit("giveGuesses", {
+                eventName: "giveGuesses",
+                status: "success",
+                data:guesses,
+        });
     });
     socket.on("startNextRound", (args, callback) => {
         const { wordToguess } = JSON.parse(args);
         const room = matchinfo.getRoomName(socket.id);
         matchinfo.startNextRound(socket.id, wordToguess);
-        io.in(room).emit("newRound", 'round started');
+        io.in(room).emit("startNextRound",     {
+            eventName: "roundStarted",
+            status: "success",
+        });
     });
     socket.on("draw", (args, callback) => {
         const { dx, dy, color } = JSON.parse(args);
+        console.log(dx+" "+dy+" "+color);
         const room = matchinfo.getRoomName(socket.id);
         matchinfo.addDrawPoint(socket.id, dx, dy, color);
         const drawPoints = matchinfo.giveDrawPoints(socket.id)
-        io.in(room).emit("giveDrawPoints", drawPoints);
-    });
+        io.in(room).emit("giveDrawPoints",{
+            eventName: "giveDrawPoints",
+            status: "success",
+            data:drawPoints,
+        });
+    });   
     socket.on("clearDraw", (args, callback) => {
         const { dx, dy, color } = JSON.parse(args);
-        const room = matchinfo.getRoomName(socket.id);
+        const room = matchinfo.getRoomName(socket.id);    
         matchinfo.clearDrawPoints(socket.id);
         const drawPoints = matchinfo.giveDrawPoints(socket.id)
-        io.in(room).emit("giveDrawPoints", drawPoints);
+        io.in(room).emit("giveDrawPoints",{
+            eventName: "giveDrawPoints",
+            status: "success",
+            data:drawPoints,
+        });
+    });
+    socket.on('disconnect', function () {
+        const roomName = matchinfo.getRoomName(socket.id);
+        const roomPlayers =  matchinfo.deletePlayer(socket.id);
+        console.log(roomPlayers);
+        io.in(roomName).emit("giveRoomPlayers", {
+            eventName: "giveRoomPlayers",
+            status: "success",
+            data:roomPlayers
+        });
     });
 });
 
 server.listen(port, () => {
-    console.log(`Example app listening at http://localhost:${port}`)
+    console.log(`listening at http://localhost:${port}`)
 
 })
 
